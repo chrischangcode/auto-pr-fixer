@@ -5,7 +5,7 @@ COMMIT_MARKER="[auto-pr-fixer]"
 STATE_MARKER="<!-- auto-pr-fixer-state:"
 
 fix_pr() {
-  local owner="$1" repo="$2" pr_num="$3" head_sha="$4" logs="$5" mode="$6"
+  local owner="$1" repo="$2" pr_num="$3" head_sha="$4" logs="$5"
 
   # Truncate logs for the comment
   local display_logs="$logs"

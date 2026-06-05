@@ -37,12 +37,7 @@ echo "Processing failed run: $RUN_NAME (#$RUN_ID) on $HEAD_BRANCH @ $HEAD_SHA"
 # --- Load config from default branch ---
 load_config "$OWNER" "$REPO" "$CONFIG_PATH"
 
-EFFECTIVE_MODE="$CFG_MODE"
-if [[ "$DRY_RUN" == "true" ]]; then
-  EFFECTIVE_MODE="comment"
-fi
-
-echo "Mode: $EFFECTIVE_MODE | Workflow: $RUN_NAME"
+echo "Workflow: $RUN_NAME"
 
 # --- Check if the workflow matches the config ---
 if ! workflow_matches "$RUN_NAME"; then

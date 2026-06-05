@@ -5,6 +5,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_PATH="${CONFIG_PATH:-.github/auto-pr-fixer.yml}"
+DRY_RUN="${DRY_RUN:-false}"
 
 # shellcheck source=scripts/config.sh
 source "$SCRIPT_DIR/config.sh"

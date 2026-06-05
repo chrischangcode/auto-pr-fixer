@@ -15,10 +15,6 @@ inputs:
     description: 'Path to the config file in the repo (loaded from default branch)'
     required: false
     default: '.github/auto-pr-fixer.yml'
-  dry-run:
-    description: 'If true, only comment on the PR instead of committing fixes'
-    required: false
-    default: 'false'
 
 runs:
   using: 'composite'
@@ -28,6 +24,5 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         CONFIG_PATH: ${{ inputs.config-path }}
-        DRY_RUN: ${{ inputs.dry-run }}
         GITHUB_EVENT_PATH: ${{ github.event_path }}
       run: bash "${{ github.action_path }}/scripts/main.sh"

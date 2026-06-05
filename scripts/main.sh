@@ -93,10 +93,10 @@ for PR_NUM in $PRS; do
     continue
   fi
 
-  echo "PR #$PR_NUM: invoking fix (mode=$EFFECTIVE_MODE)..."
+  echo "PR #$PR_NUM: invoking Copilot coding agent..."
 
   # Run the fixer
-  fix_pr "$OWNER" "$REPO" "$PR_NUM" "$HEAD_SHA" "$LOGS" "$EFFECTIVE_MODE"
+  fix_pr "$OWNER" "$REPO" "$PR_NUM" "$HEAD_SHA" "$LOGS"
 
   # Record attempt
   record_attempt "$OWNER" "$REPO" "$PR_NUM" "$HEAD_SHA" "$((ATTEMPTS + 1))"

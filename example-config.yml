@@ -1,0 +1,54 @@
+# .github/auto-pr-fixer.yml
+# Place this file in your repository's .github/ directory to configure auto-pr-fixer.
+
+# Mode of operation:
+#   "comment" - post a PR comment with the suggested fix (default, safe)
+#   "commit"  - commit the fix directly to the PR branch
+mode: comment
+
+# Maximum number of fix attempts per PR per failing SHA
+maxRetries: 2
+
+# Only run on PRs that have this label applied (recommended for safety)
+# Set to null or remove to run on all matching PRs
+requireLabel: auto-fix
+
+# Which CI workflows to monitor for failures
+workflows:
+  - CI
+  - Build
+  # - "Test Suite"
+
+# Branch filters
+branches:
+  include:
+    - "**"           # all branches by default
+  exclude:
+    - main
+    - release/**
+
+# Author filters
+authors:
+  # include: []      # empty = all authors
+  exclude:
+    - "dependabot[bot]"
+    - "renovate[bot]"
+
+# Fork PR handling
+forks:
+  # Whether to process PRs from forks (default: false for security)
+  enabled: false
+
+# Log processing
+logs:
+  # Max characters of build log to send to the model
+  maxLength: 8000
+  # Redact common secret patterns from logs
+  redactSecrets: true
+
+# Paths the fixer is NOT allowed to modify (glob patterns)
+protectedPaths:
+  - ".github/workflows/**"
+  - ".github/auto-pr-fixer.yml"
+  - "**/*.lock"
+  - "**/*.sum"

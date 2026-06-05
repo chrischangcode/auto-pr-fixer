@@ -1,45 +1,189 @@
 #!/usr/bin/env bash
-# fixer.sh — post error analysis and assign Copilot coding agent to fix the PR
+# fixer.sh — analyze CI failures with GitHub Models API and commit fixes
 
 COMMIT_MARKER="[auto-pr-fixer]"
 STATE_MARKER="<!-- auto-pr-fixer-state:"
+MODELS_API="https://models.github.ai/inference/chat/completions"
+MODEL="openai/gpt-4.1"
 
 fix_pr() {
   local owner="$1" repo="$2" pr_num="$3" head_sha="$4" logs="$5"
 
-  # Truncate logs for the comment
-  local display_logs="$logs"
-  if [[ "${#display_logs}" -gt 3000 ]]; then
-    display_logs="${display_logs:0:3000}"$'\n... [truncated]'
+  # Truncate logs for the prompt
+  local trimmed_logs="$logs"
+  if [[ "${#trimmed_logs}" -gt 4000 ]]; then
+    trimmed_logs="${trimmed_logs:0:4000}"$'\n... [truncated]'
   fi
 
-  # Build the instruction for Copilot
-  local fix_instruction
-  fix_instruction=$(cat <<EOF
-Fix the CI build failure for this PR. Here are the relevant error logs:
+  # Get the list of changed files in the PR
+  local pr_files
+  pr_files=$(gh api "repos/$owner/$repo/pulls/$pr_num/files" --jq '.[].filename' 2>/dev/null)
 
-\`\`\`
-$display_logs
-\`\`\`
+  # Fetch the content of each changed file
+  local file_contents=""
+  for f in $pr_files; do
+    # Skip binary / lock files
+    case "$f" in
+      *.lock|*.sum|*.png|*.jpg|*.gif|*.ico) continue ;;
+    esac
+    local content
+    content=$(gh api "repos/$owner/$repo/contents/$f?ref=$head_sha" --jq '.content' 2>/dev/null || true)
+    if [[ -n "$content" && "$content" != "null" ]]; then
+      local decoded
+      decoded=$(echo "$content" | base64 -d 2>/dev/null || true)
+      file_contents+="--- FILE: $f ---"$'\n'"$decoded"$'\n\n'
+    fi
+  done
 
-Please identify the root cause and provide a fix.
-Only modify the minimum set of files needed to fix the build.
-Do not modify lockfiles or go.sum unless the error is directly caused by them.
+  # Build the prompt
+  local system_prompt
+  system_prompt='You are a CI build fixer. Given error logs and source files, output ONLY a JSON array of file edits. Each element must have "path" (file path) and "content" (full new file content). Output nothing else — no markdown, no explanation, just the JSON array.'
+
+  local user_prompt
+  user_prompt=$(cat <<EOF
+The CI build failed with these errors:
+
+$trimmed_logs
+
+Here are the current source files in the PR:
+
+$file_contents
+
+Produce the minimal set of file changes to fix the build. Return a JSON array like:
+[{"path": "pkg/example.go", "content": "package example\n..."}]
 EOF
 )
 
-  # Post the error analysis comment
+  echo "PR #$pr_num: calling GitHub Models API for fix..."
+
+  # Call GitHub Models API
+  local request_body
+  request_body=$(jq -n \
+    --arg model "$MODEL" \
+    --arg system "$system_prompt" \
+    --arg user "$user_prompt" \
+    '{
+      model: $model,
+      messages: [
+        {role: "system", content: $system},
+        {role: "user", content: $user}
+      ],
+      temperature: 0.2
+    }')
+
+  local response
+  response=$(curl -s -X POST "$MODELS_API" \
+    -H "Authorization: Bearer $GH_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "$request_body" 2>/dev/null)
+
+  local reply
+  reply=$(echo "$response" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+
+  if [[ -z "$reply" ]]; then
+    local err_msg
+    err_msg=$(echo "$response" | jq -r '.error.message // .message // "unknown error"' 2>/dev/null)
+    echo "PR #$pr_num: Models API failed: $err_msg"
+    # Fall back to just posting an error analysis comment
+    post_error_comment "$owner" "$repo" "$pr_num" "$head_sha" "$trimmed_logs"
+    return
+  fi
+
+  # Strip markdown code fences if the model wrapped the JSON
+  reply=$(echo "$reply" | sed -n '/^\[/,/^\]/p')
+  if [[ -z "$reply" ]]; then
+    # Try stripping ```json ... ``` wrapper
+    reply=$(echo "$response" | jq -r '.choices[0].message.content // empty' | sed 's/^```json//;s/^```//;s/```$//' | jq '.' 2>/dev/null || true)
+  fi
+
+  # Validate JSON
+  local file_count
+  file_count=$(echo "$reply" | jq 'length' 2>/dev/null || echo "0")
+
+  if [[ "$file_count" -eq 0 ]]; then
+    echo "PR #$pr_num: model returned no file changes."
+    post_error_comment "$owner" "$repo" "$pr_num" "$head_sha" "$trimmed_logs"
+    return
+  fi
+
+  echo "PR #$pr_num: model suggested $file_count file change(s). Committing..."
+
+  # Commit each file change via GitHub API
+  local pr_branch
+  pr_branch=$(gh api "repos/$owner/$repo/pulls/$pr_num" --jq '.head.ref')
+  local committed=0
+
+  for i in $(seq 0 $((file_count - 1))); do
+    local file_path file_content
+    file_path=$(echo "$reply" | jq -r ".[$i].path")
+    file_content=$(echo "$reply" | jq -r ".[$i].content")
+
+    # Check protected paths
+    local blocked=false
+    for pattern in $CFG_PROTECTED_PATHS; do
+      # shellcheck disable=SC2254
+      case "$file_path" in
+        $pattern) blocked=true; break ;;
+      esac
+    done
+
+    if [[ "$blocked" == "true" ]]; then
+      echo "  Skipping protected path: $file_path"
+      continue
+    fi
+
+    # Get current file SHA (needed for update)
+    local file_sha
+    file_sha=$(gh api "repos/$owner/$repo/contents/$file_path?ref=$pr_branch" --jq '.sha' 2>/dev/null || true)
+
+    # Base64 encode the new content
+    local encoded_content
+    encoded_content=$(echo -n "$file_content" | base64 -w 0)
+
+    # Commit via Contents API
+    local commit_msg="fix: auto-fix CI failure in $file_path $COMMIT_MARKER"
+
+    if [[ -n "$file_sha" && "$file_sha" != "null" ]]; then
+      # Update existing file
+      gh api "repos/$owner/$repo/contents/$file_path" \
+        -X PUT \
+        -f message="$commit_msg" \
+        -f content="$encoded_content" \
+        -f sha="$file_sha" \
+        -f branch="$pr_branch" --silent 2>/dev/null && committed=$((committed + 1)) || {
+        echo "  Failed to update $file_path"
+      }
+    else
+      # Create new file
+      gh api "repos/$owner/$repo/contents/$file_path" \
+        -X PUT \
+        -f message="$commit_msg" \
+        -f content="$encoded_content" \
+        -f branch="$pr_branch" --silent 2>/dev/null && committed=$((committed + 1)) || {
+        echo "  Failed to create $file_path"
+      }
+    fi
+
+    echo "  Committed fix to $file_path"
+  done
+
+  echo "PR #$pr_num: committed $committed file(s)."
+}
+
+post_error_comment() {
+  local owner="$1" repo="$2" pr_num="$3" head_sha="$4" logs="$5"
+
   local body
   body=$(cat <<EOF
 ## 🤖 Auto PR Fixer $COMMIT_MARKER
 
-**CI build failure detected.** Assigning Copilot to fix it.
+**CI build failure detected.** Could not auto-generate a fix — please review manually.
 
 <details>
 <summary>Error Logs (click to expand)</summary>
 
 \`\`\`
-$display_logs
+$logs
 \`\`\`
 </details>
 
@@ -50,27 +194,6 @@ EOF
 
   gh api "repos/$owner/$repo/issues/$pr_num/comments" \
     -f body="$body" --silent
-
-  echo "PR #$pr_num: posted error analysis comment."
-
-  # Assign Copilot to the PR with a fix request
-  assign_copilot "$owner" "$repo" "$pr_num" "$fix_instruction"
-}
-
-assign_copilot() {
-  local owner="$1" repo="$2" pr_num="$3" instruction="$4"
-
-  # Request Copilot as a reviewer on the PR
-  echo "PR #$pr_num: requesting Copilot coding agent review..."
-
-  gh api "repos/$owner/$repo/pulls/$pr_num/requested_reviewers" \
-    -f "reviewers[]=copilot" --silent 2>/dev/null || true
-
-  # Post the fix instruction as a comment to trigger Copilot
-  gh api "repos/$owner/$repo/issues/$pr_num/comments" \
-    -f body="@copilot $instruction" --silent
-
-  echo "PR #$pr_num: assigned Copilot to fix the build failure."
 }
 
 # --- State tracking via PR comments ---

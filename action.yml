@@ -8,9 +8,8 @@ branding:
 
 inputs:
   github-token:
-    description: 'GitHub token with repo write access'
+    description: 'GitHub token with repo write and Models API access'
     required: true
-    default: ${{ github.token }}
   config-path:
     description: 'Path to the config file in the repo (loaded from default branch)'
     required: false

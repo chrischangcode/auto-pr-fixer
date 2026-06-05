@@ -58,12 +58,16 @@ except ImportError:
   CFG_REQUIRE_LABEL=$(echo "$config_json" | jq -r '.requireLabel // "auto-fix"')
   CFG_WORKFLOWS=$(echo "$config_json" | jq -r '(.workflows // ["CI"]) | join(" ")')
   CFG_BRANCH_INCLUDE=$(echo "$config_json" | jq -r '(.branches.include // ["**"]) | join(" ")')
+  export CFG_BRANCH_INCLUDE
   CFG_BRANCH_EXCLUDE=$(echo "$config_json" | jq -r '(.branches.exclude // ["main"]) | join(" ")')
   CFG_AUTHOR_EXCLUDE=$(echo "$config_json" | jq -r '(.authors.exclude // ["dependabot[bot]", "renovate[bot]"]) | join(" ")')
   CFG_FORKS_ENABLED=$(echo "$config_json" | jq -r '.forks.enabled // false')
   CFG_LOG_MAX_LENGTH=$(echo "$config_json" | jq -r '.logs.maxLength // 8000')
+  export CFG_LOG_MAX_LENGTH
   CFG_LOG_REDACT=$(echo "$config_json" | jq -r '.logs.redactSecrets // true')
+  export CFG_LOG_REDACT
   CFG_PROTECTED_PATHS=$(echo "$config_json" | jq -r '(.protectedPaths // [".github/workflows/**", ".github/auto-pr-fixer.yml", "**/*.lock", "**/*.sum"]) | join(" ")')
+  export CFG_PROTECTED_PATHS
 
   echo "Config loaded: mode=$CFG_MODE retries=$CFG_MAX_RETRIES label=$CFG_REQUIRE_LABEL"
 }

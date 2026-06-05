@@ -15,6 +15,11 @@ fix_pr() {
     trimmed_logs="${trimmed_logs:0:4000}"$'\n... [truncated]'
   fi
 
+  # Get PR title and body for context
+  local pr_title pr_body_text
+  pr_title=$(gh api "repos/$owner/$repo/pulls/$pr_num" --jq '.title' 2>/dev/null || true)
+  pr_body_text=$(gh api "repos/$owner/$repo/pulls/$pr_num" --jq '.body // ""' 2>/dev/null || true)
+
   # Get the list of changed files in the PR
   local pr_files
   pr_files=$(gh api "repos/$owner/$repo/pulls/$pr_num/files" --jq '.[].filename' 2>/dev/null)
@@ -37,10 +42,13 @@ fix_pr() {
 
   # Build the prompt
   local system_prompt
-  system_prompt='You are a CI build fixer. Given error logs and source files, output ONLY a JSON array of file edits. Each element must have "path" (file path) and "content" (full new file content). Output nothing else — no markdown, no explanation, just the JSON array.'
+  system_prompt='You are a CI build fixer. Given error logs and source files from a pull request, output ONLY a JSON array of file edits. Each element must have "path" (file path) and "content" (the complete new file content as a single string). Rules: 1) The "content" field must contain the ENTIRE file, not a partial diff. 2) Preserve the intent of the PR — if the PR is bumping a dependency version, do NOT revert that bump. Instead, fix the other dependencies to be compatible. 3) Output valid JSON only — no markdown fences, no explanation, no comments.'
 
   local user_prompt
   user_prompt=$(cat <<EOF
+PR #$pr_num: "$pr_title"
+$pr_body_text
+
 The CI build failed with these errors:
 
 $trimmed_logs
@@ -49,8 +57,8 @@ Here are the current source files in the PR:
 
 $file_contents
 
-Produce the minimal set of file changes to fix the build. Return a JSON array like:
-[{"path": "pkg/example.go", "content": "package example\n..."}]
+Fix the build failure while preserving the intent of the PR changes. If a dependency was bumped, keep that bump and update other dependencies to be compatible. Return a JSON array like:
+[{"path": "requirements.txt", "content": "flask==3.0.0\nwerkzeug==3.0.0\n..."}]
 EOF
 )
 

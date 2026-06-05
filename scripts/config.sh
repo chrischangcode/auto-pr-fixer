@@ -55,7 +55,7 @@ except ImportError:
   # Parse values with jq, falling back to defaults
   CFG_MODE=$(echo "$config_json" | jq -r '.mode // "comment"')
   CFG_MAX_RETRIES=$(echo "$config_json" | jq -r '.maxRetries // 2')
-  CFG_REQUIRE_LABEL=$(echo "$config_json" | jq -r '.requireLabel // "auto-fix"')
+  CFG_REQUIRE_LABEL=$(echo "$config_json" | jq -r 'if has("requireLabel") then (.requireLabel // empty) else "auto-fix" end')
   CFG_WORKFLOWS=$(echo "$config_json" | jq -r '(.workflows // ["CI"]) | join(" ")')
   CFG_BRANCH_INCLUDE=$(echo "$config_json" | jq -r '(.branches.include // ["**"]) | join(" ")')
   export CFG_BRANCH_INCLUDE

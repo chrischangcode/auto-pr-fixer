@@ -60,23 +60,17 @@ EOF
 assign_copilot() {
   local owner="$1" repo="$2" pr_num="$3" instruction="$4"
 
-  # Request a Copilot coding agent review with the fix instruction
-  # Uses the POST /repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers
-  # endpoint to assign copilot as a reviewer
+  # Request Copilot as a reviewer on the PR
   echo "PR #$pr_num: requesting Copilot coding agent review..."
 
   gh api "repos/$owner/$repo/pulls/$pr_num/requested_reviewers" \
-    -f "reviewers[]=copilot-swe-agent" --silent 2>/dev/null || true
+    -f "reviewers[]=copilot" --silent 2>/dev/null || true
 
-  # Post the fix instruction as a review comment to trigger Copilot
+  # Post the fix instruction as a comment to trigger Copilot
   gh api "repos/$owner/$repo/issues/$pr_num/comments" \
-    -f body="@copilot-swe-agent $instruction" --silent 2>/dev/null || {
-    # Fallback: try the copilot handle without -swe-agent suffix
-    gh api "repos/$owner/$repo/issues/$pr_num/comments" \
-      -f body="@copilot $instruction" --silent 2>/dev/null || true
-  }
+    -f body="@copilot $instruction" --silent
 
-  echo "PR #$pr_num: assigned Copilot coding agent to fix the build failure."
+  echo "PR #$pr_num: assigned Copilot to fix the build failure."
 }
 
 # --- State tracking via PR comments ---
